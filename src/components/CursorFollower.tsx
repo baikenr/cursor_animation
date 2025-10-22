@@ -17,6 +17,7 @@ interface FollowerCursor extends CursorPosition {
   stopY?: number;
   angle?: number;
   noisePhase?: number;
+  followRadius: number;
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -47,6 +48,7 @@ const CursorFollower: React.FC = () => {
       offsetY: (Math.random() - 0.5) * 40,
       angle: Math.random() * Math.PI * 2,
       noisePhase: Math.random() * Math.PI * 2,
+      followRadius: 10 + i * 3,
     }));
 
     const onMove = (e: MouseEvent) => {
@@ -79,6 +81,8 @@ const CursorFollower: React.FC = () => {
       });
     });
 
+    const MIN_DISTANCE = 35;
+
     const animate = () => {
       const container = containerRef.current;
       if (!container) {
@@ -88,11 +92,12 @@ const CursorFollower: React.FC = () => {
 
       const dxMouse = mousePos.current.x - prevMousePos.current.x;
       const dyMouse = mousePos.current.y - prevMousePos.current.y;
-      const moving = Math.hypot(dxMouse, dyMouse) > 0.8;
+      const speed = Math.hypot(dxMouse, dyMouse);
+      const moving = speed > 0.8;
       rotationPhaseRef.current += 0.01;
 
       followersRef.current.forEach((f, idx) => {
-        f.noisePhase! += 0.015 + Math.random() * 0.005;
+        f.noisePhase! += 0.015 + Math.random() * 0.01;
 
         if (rotateModeRef.current) {
           const noiseX = Math.sin(f.noisePhase! * 1.3 + idx) * 15;
@@ -104,21 +109,29 @@ const CursorFollower: React.FC = () => {
           const radius = f.stopX;
           f.x = lerp(f.x, mousePos.current.x + Math.cos(f.angle!) * radius + noiseX, 0.1);
           f.y = lerp(f.y, mousePos.current.y + Math.sin(f.angle!) * radius + noiseY, 0.1);
-        } else if (moving) {
-          f.stopX = undefined;
-          f.stopY = undefined;
-          const lag = 0.05 + idx * 0.008;
-          f.x = lerp(f.x, mousePos.current.x + f.offsetX, lag);
-          f.y = lerp(f.y, mousePos.current.y + f.offsetY, lag);
         } else {
-          if (f.stopX === undefined || f.stopY === undefined) {
-            const radius = f.baseRadius * 1.5 + Math.random() * 15;
-            const angle = Math.random() * Math.PI * 2;
-            f.stopX = mousePos.current.x + Math.cos(angle) * radius;
-            f.stopY = mousePos.current.y + Math.sin(angle) * radius;
+          const angle = Math.atan2(f.y - mousePos.current.y, f.x - mousePos.current.x);
+          let targetX = mousePos.current.x + Math.cos(angle) * f.followRadius + f.offsetX;
+          let targetY = mousePos.current.y + Math.sin(angle) * f.followRadius + f.offsetY;
+
+          // если мышь стоит, держим минимальное расстояние
+          if (!moving) {
+            const dx = targetX - mousePos.current.x;
+            const dy = targetY - mousePos.current.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < MIN_DISTANCE) {
+              const factor = MIN_DISTANCE / (dist || 1);
+              targetX = mousePos.current.x + dx * factor;
+              targetY = mousePos.current.y + dy * factor;
+            }
           }
-          f.x = lerp(f.x, f.stopX, 0.05);
-          f.y = lerp(f.y, f.stopY, 0.05);
+
+          const lag = 0.05 + idx * 0.008 + Math.max(0, 0.02 - speed * 0.02);
+          const chaosX = (Math.random() - 0.5) * 4;
+          const chaosY = (Math.random() - 0.5) * 4;
+
+          f.x = lerp(f.x, targetX + (moving ? chaosX : 0), lag);
+          f.y = lerp(f.y, targetY + (moving ? chaosY : 0), lag);
         }
       });
 
@@ -131,7 +144,7 @@ const CursorFollower: React.FC = () => {
           const dist = Math.hypot(dx, dy);
           const minDist = 18;
           if (dist < minDist && dist > 0.001) {
-            const push = (minDist - dist) * 0.15; 
+            const push = (minDist - dist) * 0.15;
             const nx = dx / dist;
             const ny = dy / dist;
             a.x -= nx * push;
@@ -146,8 +159,7 @@ const CursorFollower: React.FC = () => {
         const el = container.children[idx] as HTMLElement | undefined;
         if (!el) return;
         const rot =
-          (Math.atan2(mousePos.current.y - f.y, mousePos.current.x - f.x) * 180) / Math.PI +
-          90;
+          (Math.atan2(mousePos.current.y - f.y, mousePos.current.x - f.x) * 180) / Math.PI + 90;
         el.style.left = `${f.x}px`;
         el.style.top = `${f.y}px`;
         el.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
